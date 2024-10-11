@@ -1,0 +1,110 @@
+# %%
+import os
+import getpass
+import pathlib
+import textwrap
+import pickle
+import google.generativeai as genai
+import warnings
+from IPython.display import Markdown
+import urllib
+# %%
+def to_markdown(result):
+  text = result.replace('•', '  *')
+  return Markdown(textwrap.indent(text, '> ', predicate=lambda _: True))
+# %%
+from langchain_google_genai import ChatGoogleGenerativeAI
+llm = ChatGoogleGenerativeAI(model="gemini-pro", google_api_key="AIzaSyAJ9gS_ch1anqk2G20hk0_Gxu_wT6nK-1w")
+result = llm.invoke("What are the usecases of LLMs?")
+to_markdown(result.content)
+# %%
+# Large model to be used
+llm = ChatGoogleGenerativeAI(model="gemini-pro", google_api_key="AIzaSyAJ9gS_ch1anqk2G20hk0_Gxu_wT6nK-1w",
+                             temperature=0.7, convert_system_message_to_human=True)
+
+persist_directory = 'ncc'
+print(result.content)
+
+# %%
+from langchain_community.document_loaders import PyPDFLoader
+pdf_loader = PyPDFLoader(r"D:\Convoloo_Intern\meeting02\02_Report_Gemini_LLAMA_OpenAI.pdf")
+file = pdf_loader.load()
+def load_db(file):
+  print(file[1].page_content)
+load_db(file)
+
+# %%
+#Creating a template for the RAG
+from langchain.prompts import ChatPromptTemplate
+template = """You are an assistant for carrying out question-answering tasks. Answer according to the context provided. If you don't know the answer, just say that you don't know.
+Question: {question}
+Context: {context}
+Answer:
+"""
+prompt = ChatPromptTemplate.from_template(template)
+
+# %%
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+text_splitter = RecursiveCharacterTextSplitter(chunk_size = 10000, chunk_overlap = 200, add_start_index = True)
+
+context = "\n\n".join(str(p.page_content) for p in file)
+all_splits = text_splitter.split_text(context)
+len(all_splits)
+
+# %%
+# Convert the text splits into Document objects
+from langchain.schema import Document  # Assuming Document is imported from langchain.schema
+
+documents = [Document(page_content=chunk) for chunk in all_splits]
+
+# Initialize embeddings and vector store
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key="AIzaSyAJ9gS_ch1anqk2G20hk0_Gxu_wT6nK-1w")
+
+from langchain_community.vectorstores import FAISS
+
+# Assuming you use FAISS for the vector store
+vectorstore = FAISS.from_documents(documents, embedding=embeddings)
+
+# Create the retriever and the retrieval chain
+from langchain.chains import RetrievalQA
+
+retriever = vectorstore.as_retriever()
+
+rag_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    retriever=retriever,
+    chain_type="map_reduce",  # Adjust chain type as needed
+    input_key="question",
+    return_source_documents=True
+)
+
+# Test the RAG chain
+question = "What are the key points about Gemini and LLAMA models?"
+result = rag_chain({"question": question})
+print(result)
+# from langchain_google_genai import GoogleGenerativeAIEmbeddings
+# embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key="AIzaSyAJ9gS_ch1anqk2G20hk0_Gxu_wT6nK-1w")
+
+# from langchain_community.vectorstores import FAISS
+# from langchain_community.vectorstores import Chroma
+# vectorstore = Chroma.from_documents(embeddings)
+
+# from langchain.chains import ConversationalRetrievalChain
+
+
+# from langchain_core.runnables import RunnablePassthrough
+# from langchain_core.output_parsers import StrOutputParser
+
+# rag_chain = ConversationalRetrievalChain(
+#     retriever=vectorstore.as_retriever(),
+#     prompt=prompt,
+#     passthrough=RunnablePassthrough(),
+#     output_parser=StrOutputParser()
+# )
+
+# # Test the RAG chain
+# question = "What are the key points about Gemini and LLAMA models?"
+# result = rag_chain.invoke(question)
+# print(result)
